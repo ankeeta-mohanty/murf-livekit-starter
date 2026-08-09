@@ -1,16 +1,22 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Track } from 'livekit-client';
 import { AnimatePresence, type MotionProps, motion } from 'motion/react';
-import { useAgent, useSessionContext, useSessionMessages } from '@livekit/components-react';
+import {
+  type AgentState,
+  useAgent,
+  useSessionContext,
+  useSessionMessages,
+} from '@livekit/components-react';
 import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
 import {
   AgentControlBar,
   type AgentControlBarControls,
 } from '@/components/agents-ui/agent-control-bar';
+import { VoiceOrb } from '@/components/agents-ui/voice-orb';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { cn } from '@/lib/shadcn/utils';
-import { TileLayout } from './tile-view';
 
 const MotionMessage = motion.create(Shimmer);
 
@@ -88,6 +94,50 @@ interface FadeProps {
   className?: string;
 }
 
+function getAgentStatus(agentState?: AgentState) {
+  switch (agentState) {
+    case 'connecting':
+    case 'pre-connect-buffering':
+    case 'initializing':
+      return {
+        label: 'Connecting',
+        detail: 'Sahaya is joining the call. Please wait.',
+        accent: 'amber',
+      };
+    case 'listening':
+    case 'idle':
+      return {
+        label: 'Listening',
+        detail: 'Listening to you',
+        accent: 'emerald',
+      };
+    case 'thinking':
+      return {
+        label: 'Thinking',
+        detail: 'Sahaya is processing your request.',
+        accent: 'sky',
+      };
+    case 'speaking':
+      return {
+        label: 'Speaking',
+        detail: 'Agent is speaking',
+        accent: 'violet',
+      };
+    case 'failed':
+      return {
+        label: 'Call ended',
+        detail: 'The conversation has ended.',
+        accent: 'rose',
+      };
+    default:
+      return {
+        label: 'Ready',
+        detail: 'Sahaya is ready when you are.',
+        accent: 'sky',
+      };
+  }
+}
+
 export function Fade({ top = false, bottom = false, className }: FadeProps) {
   return (
     <div
@@ -102,61 +152,26 @@ export function Fade({ top = false, bottom = false, className }: FadeProps) {
 }
 
 export interface AgentSessionView_01Props {
-  /**
-   * Message shown above the controls before the first chat message is sent.
-   *
-   * @default 'Agent is listening, ask it a question'
-   */
   preConnectMessage?: string;
-  /**
-   * Enables or disables the chat toggle and transcript input controls.
-   *
-   * @default true
-   */
   supportsChatInput?: boolean;
-  /**
-   * Enables or disables camera controls in the bottom control bar.
-   *
-   * @default true
-   */
   supportsVideoInput?: boolean;
-  /**
-   * Enables or disables screen sharing controls in the bottom control bar.
-   *
-   * @default true
-   */
   supportsScreenShare?: boolean;
-  /**
-   * Shows a pre-connect buffer state with a shimmer message before messages appear.
-   *
-   * @default true
-   */
   isPreConnectBufferEnabled?: boolean;
-
-  /** Selects the visualizer style rendered in the main tile area. */
   audioVisualizerType?: 'bar' | 'wave' | 'grid' | 'radial' | 'aura';
-  /** Primary hex color used by supported audio visualizer variants. */
   audioVisualizerColor?: `#${string}`;
-  /** Hue shift intensity used by certain visualizers. */
   audioVisualizerColorShift?: number;
-  /** Number of bars to render when `audioVisualizerType` is `bar`. */
   audioVisualizerBarCount?: number;
-  /** Number of rows in the visualizer when `audioVisualizerType` is `grid`. */
   audioVisualizerGridRowCount?: number;
-  /** Number of columns in the visualizer when `audioVisualizerType` is `grid`. */
   audioVisualizerGridColumnCount?: number;
-  /** Number of radial bars when `audioVisualizerType` is `radial`. */
   audioVisualizerRadialBarCount?: number;
-  /** Base radius of the radial visualizer when `audioVisualizerType` is `radial`. */
   audioVisualizerRadialRadius?: number;
-  /** Stroke width of the wave path when `audioVisualizerType` is `wave`. */
   audioVisualizerWaveLineWidth?: number;
-  /** Optional class name merged onto the outer `<section>` container. */
   className?: string;
+  onDisconnect?: () => void;
 }
 
 export function AgentSessionView_01({
-  preConnectMessage = 'Agent is listening, ask it a question',
+  preConnectMessage = 'Sahaya is listening, ask it a question',
   supportsChatInput = true,
   supportsVideoInput = true,
   supportsScreenShare = true,
@@ -173,13 +188,16 @@ export function AgentSessionView_01({
   audioVisualizerWaveLineWidth,
   ref,
   className,
+  onDisconnect,
   ...props
 }: React.ComponentProps<'section'> & AgentSessionView_01Props) {
   const session = useSessionContext();
   const { messages } = useSessionMessages(session);
   const [chatOpen, setChatOpen] = useState(false);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
+  const status = useMemo(() => getAgentStatus(agentState), [agentState]);
 
   const controls: AgentControlBarControls = {
     leave: true,
@@ -205,7 +223,6 @@ export function AgentSessionView_01({
       {...props}
     >
       <Fade top className="absolute inset-x-4 top-0 z-10 h-40" />
-      {/* transcript */}
 
       <div className="absolute top-0 bottom-[135px] flex w-full flex-col md:bottom-[170px]">
         <AnimatePresence>
@@ -223,25 +240,26 @@ export function AgentSessionView_01({
           )}
         </AnimatePresence>
       </div>
-      {/* Tile layout */}
-      <TileLayout
-        chatOpen={chatOpen}
-        audioVisualizerType={audioVisualizerType}
-        audioVisualizerColor={audioVisualizerColor}
-        audioVisualizerColorShift={audioVisualizerColorShift}
-        audioVisualizerBarCount={audioVisualizerBarCount}
-        audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
-        audioVisualizerRadialRadius={audioVisualizerRadialRadius}
-        audioVisualizerGridRowCount={audioVisualizerGridRowCount}
-        audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
-        audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
-      />
-      {/* Bottom */}
+
+      <div className="absolute inset-x-0 top-10 z-40 px-4 md:top-14">
+        {deviceError && (
+          <div className="mx-auto mb-4 max-w-md rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-left text-sm text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+            <p className="font-semibold">Microphone access was blocked.</p>
+            <p className="mt-1 leading-6">{deviceError}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="absolute inset-0 z-30 flex items-center justify-center px-4">
+        <div className="flex flex-col items-center justify-center pt-4">
+          <VoiceOrb stateOverride={agentState} className="scale-[0.82] md:scale-100" />
+        </div>
+      </div>
+
       <motion.div
         {...BOTTOM_VIEW_MOTION_PROPS}
         className="absolute inset-x-3 bottom-0 z-50 md:inset-x-12"
       >
-        {/* Pre-connect message */}
         {isPreConnectBufferEnabled && (
           <AnimatePresence>
             {messages.length === 0 && (
@@ -264,8 +282,15 @@ export function AgentSessionView_01({
             controls={controls}
             isChatOpen={chatOpen}
             isConnected={session.isConnected}
-            onDisconnect={session.end}
+            onDisconnect={onDisconnect ?? session.end}
             onIsChatOpenChange={setChatOpen}
+            onDeviceError={(error) => {
+              if (error.source === Track.Source.Microphone) {
+                setDeviceError(
+                  'Please allow microphone access in your browser settings and refresh the page, then try again.'
+                );
+              }
+            }}
           />
         </div>
       </motion.div>

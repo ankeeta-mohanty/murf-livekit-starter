@@ -39,11 +39,11 @@ export async function POST(req: Request) {
       // When AGENT_NAME is set, configure explicit agent dispatch so the named
       // agent worker picks up the job when a user joins the room.
       roomConfig = RoomConfiguration.fromJson(
-        { agents: [{ agentName: AGENT_NAME }] },
+        { agents: [{ agent_name: AGENT_NAME }] },
         { ignoreUnknownFields: true }
       );
     }
-      
+
     // Generate participant token
     const participantName = 'user';
     const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;

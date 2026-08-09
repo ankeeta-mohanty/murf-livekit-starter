@@ -33,20 +33,21 @@ export interface AppConfig {
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
-  companyName: 'Murf AI',
-  pageTitle: 'Voice Agent Starter',
-  pageDescription: 'A voice agent powered by Murf Falcon — the fastest TTS API',
+  companyName: 'Sahaya',
+  pageTitle: 'Sahaya Voice Agent',
+  pageDescription:
+    'Your voice assistant for disaster response, safety guidance, and emergency information.',
 
   supportsChatInput: true,
-  supportsVideoInput: true,
-  supportsScreenShare: true,
+  supportsVideoInput: false,
+  supportsScreenShare: false,
   isPreConnectBufferEnabled: true,
 
   logo: '/murf-logo.svg',
-  accent: '#6366F1',
+  accent: '#1d9bf0',
   logoDark: '/murf-logo-dark.svg',
-  accentDark: '#818cf8',
-  startButtonText: 'Start talking',
+  accentDark: '#5cc8ff',
+  startButtonText: 'Start with Sahaya',
 
   // optional: audio visualization configuration
   // audioVisualizerType: 'bar',
