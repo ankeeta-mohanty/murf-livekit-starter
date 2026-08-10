@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { AccessToken, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
 import { RoomConfiguration } from '@livekit/protocol';
@@ -7,6 +8,7 @@ type ConnectionDetails = {
   roomName: string;
   participantName: string;
   participantToken: string;
+  userId: string;
 };
 
 // NOTE: you are expected to define the following environment variables in `.env.local`:
@@ -44,10 +46,24 @@ export async function POST(req: Request) {
       );
     }
 
+    const cookieStore = await cookies();
+    const existingUserId = cookieStore.get('sahaya_user_id')?.value;
+    const userId = existingUserId ?? crypto.randomUUID();
+
+    if (!existingUserId) {
+      cookieStore.set('sahaya_user_id', userId, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60 * 24 * 365,
+        path: '/',
+      });
+    }
+
     // Generate participant token
     const participantName = 'user';
-    const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
-    const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
+    const participantIdentity = `sahaya_user_${userId}`;
+    const roomName = `sahaya_room_${userId}_${Math.floor(Math.random() * 10_000)}`;
 
     const participantToken = await createParticipantToken(
       { identity: participantIdentity, name: participantName },
@@ -61,6 +77,7 @@ export async function POST(req: Request) {
       roomName,
       participantName,
       participantToken,
+      userId,
     };
     const headers = new Headers({
       'Cache-Control': 'no-store',

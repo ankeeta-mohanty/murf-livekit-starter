@@ -52,6 +52,12 @@ export function VoiceOrb({
   const reducedMotion = useReducedMotion();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const particlesRef = useRef<Particle[]>([]);
+  const animationStateRef = useRef({
+    audioLevel: 0,
+    isConnecting: false,
+    isListening: false,
+    isSpeaking: false,
+  });
 
   const resolvedState = (stateOverride ?? state ?? 'idle') as AgentState | OrbVariant;
   const { label, variant } = getVoiceOrbStatus(resolvedState);
@@ -65,6 +71,13 @@ export function VoiceOrb({
   const isConnecting = variant === 'connecting';
   const audioLevel = clamp(Number(volume) || 0, 0, 1);
 
+  animationStateRef.current = {
+    audioLevel,
+    isConnecting,
+    isListening,
+    isSpeaking,
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -72,7 +85,7 @@ export function VoiceOrb({
     if (!context) return;
 
     const buildParticles = () => {
-      const count = 220;
+      const count = 120;
       const nextParticles: Particle[] = [];
 
       for (let index = 0; index < count; index += 1) {
@@ -98,7 +111,7 @@ export function VoiceOrb({
 
     const resizeCanvas = () => {
       const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       canvas.width = Math.max(220, rect.width * dpr);
       canvas.height = Math.max(220, rect.height * dpr);
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -113,11 +126,13 @@ export function VoiceOrb({
     let frameId = 0;
 
     const render = (time: number) => {
-      const width = canvas.width / (window.devicePixelRatio || 1);
-      const height = canvas.height / (window.devicePixelRatio || 1);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const width = canvas.width / dpr;
+      const height = canvas.height / dpr;
       const cx = width / 2;
       const cy = height / 2;
       const radius = Math.min(width, height) * 0.43;
+      const { audioLevel, isConnecting, isListening, isSpeaking } = animationStateRef.current;
       const baseBoost = isSpeaking ? 1.05 : isListening ? 1.08 : isConnecting ? 0.9 : 0.75;
       const voiceBoost = reducedMotion ? 0.35 : 0.34 + audioLevel * 0.22;
       const motionScale = reducedMotion ? 0.4 : 1;
@@ -201,7 +216,7 @@ export function VoiceOrb({
       cancelAnimationFrame(frameId);
       observer.disconnect();
     };
-  }, [audioLevel, isConnecting, isListening, isSpeaking, reducedMotion]);
+  }, [reducedMotion]);
 
   return (
     <div className={cn('flex flex-col items-center justify-center', className)}>

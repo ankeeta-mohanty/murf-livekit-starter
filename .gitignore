@@ -2,3 +2,5 @@
 .env.*
 !.env.example
 .DS_Store
+sahaya_memory.sqlite3
+sahaya_memory.sqlite3-*

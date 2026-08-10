@@ -8,14 +8,17 @@ from livekit.agents import (
     AgentSession,
     JobContext,
     JobProcess,
+    RunContext,
     UserInputTranscribedEvent,
     cli,
+    function_tool,
     room_io,
     tokenize,
 )
 from livekit.plugins import deepgram, google, murf, noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
+from memory import lookup_caller, save_caller
 from prompt import GREETING_MESSAGE, SYSTEM_PROMPT
 
 logger = logging.getLogger("agent")
@@ -23,26 +26,87 @@ logger = logging.getLogger("agent")
 load_dotenv(".env.local")
 
 
+def _caller_id_from_room(room_name: str) -> str | None:
+    prefix = "sahaya_room_"
+    if not room_name.startswith(prefix):
+        return None
+
+    caller_id, _, _suffix = room_name.removeprefix(prefix).rpartition("_")
+    return caller_id or None
+
+
 class Assistant(Agent):
-    def __init__(self) -> None:
+    def __init__(self, caller_id: str | None = None) -> None:
+        self.caller_id = caller_id
         super().__init__(instructions=SYSTEM_PROMPT)
 
-    # To add tools, use the @function_tool decorator.
-    # Here's an example that adds a simple weather tool.
-    # You also have to add `from livekit.agents import function_tool, RunContext` to the top of this file
-    # @function_tool
-    # async def lookup_weather(self, context: RunContext, location: str):
-    #     """Use this tool to look up current weather information in the given location.
-    #
-    #     If the location is not supported by the weather service, the tool will indicate this. You must tell the user the location's weather is unavailable.
-    #
-    #     Args:
-    #         location: The location to look up weather information for (e.g. city name)
-    #     """
-    #
-    #     logger.info(f"Looking up weather for {location}")
-    #
-    #     return "sunny with a temperature of 70 degrees."
+    @function_tool
+    async def lookup_caller_memory(self, context: RunContext) -> dict:
+        """Look up the current caller's saved memory.
+
+        Use this at the start of a call. If a record is found, greet the caller
+        by name and continue from the saved disaster-response context.
+        """
+
+        if not self.caller_id:
+            return {"found": False, "reason": "No stable caller ID is available."}
+
+        logger.info("Looking up caller memory for %s", self.caller_id)
+        record = lookup_caller(self.caller_id)
+        if record is None:
+            return {"found": False, "user_id": self.caller_id}
+
+        return {"found": True, "record": record}
+
+    @function_tool
+    async def save_caller_memory(
+        self,
+        context: RunContext,
+        name: str,
+        consent_confirmed: bool,
+        language_preference: str | None = None,
+        location: str | None = None,
+        household_size: str | None = None,
+        mobility_needs: str | None = None,
+        last_check_in: str | None = None,
+    ) -> dict:
+        """Save disaster-response facts for the current caller.
+
+        Only call this after the caller clearly agrees that Sahaya may remember
+        the details. If the caller refuses, do not call this tool.
+
+        Args:
+            name: Caller name.
+            consent_confirmed: True only after explicit caller consent.
+            language_preference: Hindi, Hinglish, English, or another preference.
+            location: Caller location such as village, district, city, or shelter.
+            household_size: Household size or number of people needing support.
+            mobility_needs: Mobility, disability, elderly, child, pregnancy, or medical access needs.
+            last_check_in: Short summary of the latest situation or safety check-in.
+        """
+
+        if not self.caller_id:
+            return {"saved": False, "reason": "No stable caller ID is available."}
+
+        if not consent_confirmed:
+            return {"saved": False, "reason": "Caller did not consent to saving."}
+
+        facts = {
+            "location": location,
+            "household_size": household_size,
+            "mobility_needs": mobility_needs,
+            "last_check_in": last_check_in,
+        }
+        cleaned_facts = {key: value for key, value in facts.items() if value}
+
+        logger.info("Saving caller memory for %s", self.caller_id)
+        record = save_caller(
+            user_id=self.caller_id,
+            name=name,
+            language_preference=language_preference,
+            facts=cleaned_facts,
+        )
+        return {"saved": True, "record": record}
 
 
 server = AgentServer()
@@ -67,7 +131,7 @@ async def my_agent(ctx: JobContext):
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=deepgram.STT(model="nova-3",language="multi"),
+        stt=deepgram.STT(model="nova-3", language="multi"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
         llm=google.LLM(
@@ -103,11 +167,55 @@ async def my_agent(ctx: JobContext):
 
         # 2. Check for common Hinglish/Hindi romanized keywords
         hindi_keywords = {
-            "kya", "hai", "aur", "main", "haan", "nahin", "aap", "namaste", "shukriya",
-            "yojana", "batao", "bataiye", "samjhao", "dhan", "suraksha", "bima", "pension",
-            "mein", "ke", "ki", "se", "ko", "ka", "jo", "toh", "bhi", "ho", "kar", "raha",
-            "rahi", "rha", "rhi", "mujhe", "mera", "meri", "hum", "tum", "apna", "apni",
-            "karke", "karo", "karna", "tha", "thi", "the", "ab", "kab", "tab", "sab"
+            "kya",
+            "hai",
+            "aur",
+            "main",
+            "haan",
+            "nahin",
+            "aap",
+            "namaste",
+            "shukriya",
+            "yojana",
+            "batao",
+            "bataiye",
+            "samjhao",
+            "dhan",
+            "suraksha",
+            "bima",
+            "pension",
+            "mein",
+            "ke",
+            "ki",
+            "se",
+            "ko",
+            "ka",
+            "jo",
+            "toh",
+            "bhi",
+            "ho",
+            "kar",
+            "raha",
+            "rahi",
+            "rha",
+            "rhi",
+            "mujhe",
+            "mera",
+            "meri",
+            "hum",
+            "tum",
+            "apna",
+            "apni",
+            "karke",
+            "karo",
+            "karna",
+            "tha",
+            "thi",
+            "the",
+            "ab",
+            "kab",
+            "tab",
+            "sab",
         }
         words = set(transcript.split())
         has_hindi_keywords = not words.isdisjoint(hindi_keywords)
@@ -137,9 +245,14 @@ async def my_agent(ctx: JobContext):
     # # Start the avatar and wait for it to join
     # await avatar.start(session, room=ctx.room)
 
+    caller_id = _caller_id_from_room(ctx.room.name)
+
+    # Join the room and connect to the user
+    await ctx.connect()
+
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
-        agent=Assistant(),
+        agent=Assistant(caller_id=caller_id),
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
@@ -152,9 +265,6 @@ async def my_agent(ctx: JobContext):
             ),
         ),
     )
-
-    # Join the room and connect to the user
-    await ctx.connect()
 
     # Play first-turn greeting
     await session.say(GREETING_MESSAGE, allow_interruptions=True)
